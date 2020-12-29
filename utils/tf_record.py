@@ -1,8 +1,8 @@
 import numpy as np
 
 import tensorflow as tf
-
-from scipy.misc import imread, imresize, imsave
+from skimage.transform import rescale, resize, downscale_local_mean
+#from scipy.misc import imread, imresize, imsave
 from matplotlib import pyplot as plt
 from rgb_ind_convertor import *
 

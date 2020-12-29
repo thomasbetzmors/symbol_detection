@@ -1,7 +1,11 @@
 import numpy as np
 import tensorflow as tf # using tf 1.10.1
+import tensorflow_io as tfio
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 
-from tensorflow.contrib.slim.nets import vgg
+#from tensorflow.contrib.slim.nets import vgg
+
 
 import os
 import sys
@@ -10,7 +14,8 @@ import time
 import random
 
 from scipy import ndimage
-from scipy.misc import imread, imresize, imsave
+from skimage.transform import rescale, resize, downscale_local_mean
+#from scipy.misc import imread, imresize, imsave
 
 sys.path.append('./utils/')
 from rgb_ind_convertor import *
@@ -31,7 +36,7 @@ def data_loader_bd_rm_from_tfrecord(batch_size=1):
 class Network(object):
 	"""docstring for Network"""
 	def __init__(self, dtype=tf.float32):
-		print 'Initial nn network object...'
+		print ('Initial nn network object...')
 		self.dtype = dtype
 		self.pre_train_restore_map = {'vgg_16/conv1/conv1_1/weights':'FNet/conv1_1/W', # {'checkpoint_scope_var_name':'current_scope_var_name'} shape must be the same
 									'vgg_16/conv1/conv1_1/biases':'FNet/conv1_1/b',	
