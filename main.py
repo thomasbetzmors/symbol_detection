@@ -7,6 +7,7 @@ from skimage.io import imread
 
 
 
+#os.environ['CUDA_VISIBLE_DEVICES'] = GPU_ID
 os.environ['CUDA_VISIBLE_DEVICES'] = GPU_ID
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -91,7 +92,7 @@ class MODEL(Network):
 		labels_cw_hot  = loader_dict['label_boundaries']
 
 		max_ep = max_step // num_batch
-		print ('max_step = {}, max_ep = {}, num_batch = {}').format(max_step, max_ep, num_batch)
+		print('max_step = {}, max_ep = {}, num_batch = {}').format(max_step, max_ep, num_batch)
 
 		logits1, logits2 = self.forward(images, init_with_pretrain_vgg=False)
 
@@ -140,7 +141,7 @@ class MODEL(Network):
 			# start queue 
 			threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-			print ("Start Training!")
+			print("Start Training!")
 			total_times = 0			
 
 			for ep in xrange(max_ep): # epoch loop
@@ -154,7 +155,7 @@ class MODEL(Network):
 
 					step = int(ep*num_batch + n)
 					# write log 
-					print ('step {}: loss = {:.3}; {:.2} data/sec, excuted {} minutes').format(step,
+					print('step {}: loss = {:.3}; {:.2} data/sec, excuted {} minutes').format(step,
 						loss_value, 1.0/duration, int(total_times/60))
 					# writer.add_summary(summaries, global_step=step)
 				# save model parameters after 2 epoch training
@@ -170,7 +171,7 @@ class MODEL(Network):
 			sess.close()	
 
 	def infer(self, save_dir='out', resize=True, merge=True):
-		print ("generating test set of {}.... will save to [./{}]".format(self.eval_file, save_dir))
+		print("generating test set of {}.... will save to [./{}]".format(self.eval_file, save_dir))
 		room_dir = os.path.join(save_dir, 'room')
 		close_wall_dir = os.path.join(save_dir, 'boundary')
 
@@ -235,7 +236,7 @@ class MODEL(Network):
 				imsave(save_path3, out3_rgb)
 			# imsave(save_path4, out4)
 			
-			print ('Saving prediction: {}'.format(name))
+			print('Saving prediction: {}'.format(name))
 
 	def evaluate(self, sess, epoch, num_of_classes=11):
 		x = tf.placeholder(shape=[1, 512, 512, 3], dtype=tf.float32)
@@ -306,7 +307,7 @@ def main(args):
 		tic = time.time()
 		model.train(loader_dict, num_batch)
 		toc = time.time()
-		print ('total training + evaluation time = {} minutes'.format((toc-tic)/60))
+		print('total training + evaluation time = {} minutes'.format((toc-tic)/60))
 	elif args.phase.lower() == 'test':	
 		model.infer()
 	else:

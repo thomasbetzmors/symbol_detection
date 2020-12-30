@@ -1,7 +1,6 @@
 import os
 import argparse
 
-#import image io
 import imageio
 import numpy as np
 import tensorflow as tf
