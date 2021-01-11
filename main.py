@@ -1,13 +1,14 @@
 import argparse
 from net import *
-from skimage.io import imread
-#import tensorflow as tf
-#import keras.backend.tensorflow_backend as tfback
+from PIL import Image
+from skimage.io import imread , imsave
+from skimage import io
+from matplotlib import pyplot as plt
+from skimage.transform import rescale, resize, downscale_local_mean
+import cv2
+from utils.rgb_ind_convertor import floorplan_boundary_map, floorplan_fuse_map, rgb2ind
+from utils.util import fast_hist
 
-
-
-
-#os.environ['CUDA_VISIBLE_DEVICES'] = GPU_ID
 os.environ['CUDA_VISIBLE_DEVICES'] = GPU_ID
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -25,7 +26,7 @@ class MODEL(Network):
 	def __init__(self):
 		Network.__init__(self)
 		self.log_dir = 'pretrained'
-		self.eval_file = './dataset/r3d_test.txt'		
+		self.eval_file = './dataset/r3d_test.txt'
 		self.loss_type = 'balanced'
 
 	def convert_one_hot_to_image(self, one_hot, dtype='float', act=None):
@@ -65,26 +66,26 @@ class MODEL(Network):
 
 		m_c = [] # index mask
 		n_c = [] # each class foreground pixels
-		for c in xrange(num_classes):
+		for c in range(num_classes):
 			m_c.append(tf.cast(tf.equal(ind, c), dtype=tf.int32))
 			n_c.append(tf.cast(tf.reduce_sum(m_c[-1]), dtype=tf.float32))
 
 		# compute count
 		c = []
-		for i in xrange(num_classes):
+		for i in range(num_classes):
 			c.append(total - n_c[i])
 		tc = tf.add_n(c)
 
 		# use for compute loss
 		loss = 0.
-		for i in xrange(num_classes): 
+		for i in range(num_classes):
 			w = c[i] / tc
 			m_c_one_hot = tf.one_hot((i*m_c[i]), num_classes, axis=-1)
 			y_c = m_c_one_hot*y
 
-			loss += w*tf.reduce_mean(-tf.reduce_sum(y_c*log_z, axis=1)) 
+			loss += w*tf.reduce_mean(-tf.reduce_sum(y_c*log_z, axis=1))
 
-		return (loss / num_classes) # mean 
+		return (loss / num_classes) # mean
 
 	def train(self, loader_dict, num_batch, max_step=40000):
 		images	 = loader_dict['images']
@@ -92,7 +93,7 @@ class MODEL(Network):
 		labels_cw_hot  = loader_dict['label_boundaries']
 
 		max_ep = max_step // num_batch
-		print('max_step = {}, max_ep = {}, num_batch = {}').format(max_step, max_ep, num_batch)
+		print ('max_step = {}, max_ep = {}, num_batch = {}').format(max_step, max_ep, num_batch)
 
 		logits1, logits2 = self.forward(images, init_with_pretrain_vgg=False)
 
@@ -120,15 +121,15 @@ class MODEL(Network):
 		# tf.summary.scalar('bce', loss)
 
 		# define session
-		config = tf.ConfigProto(allow_soft_placement=True) 
+		config = tf.ConfigProto(allow_soft_placement=True)
 		config.gpu_options.allow_growth=True # prevent the program occupies all GPU memory
 		with tf.Session(config=config) as sess:
 			# init all variables in graph
 			sess.run(tf.group(tf.global_variables_initializer(),
 							tf.local_variables_initializer()))
 
-			# saver 
-			saver = tf.train.Saver(max_to_keep=10) 
+			# saver
+			saver = tf.train.Saver(max_to_keep=10)
 
 			# filewriter for log info
 			# log_dir = self.log_dir+'/run-%02d%02d-%02d%02d' % tuple(time.localtime(time.time()))[1:5]
@@ -138,24 +139,24 @@ class MODEL(Network):
 			# coordinator for queue runner
 			coord = tf.train.Coordinator()
 
-			# start queue 
+			# start queue
 			threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-			print("Start Training!")
-			total_times = 0			
+			print ("Start Training!")
+			total_times = 0
 
-			for ep in xrange(max_ep): # epoch loop
-				for n in xrange(num_batch): # batch loop
+			for ep in range(max_ep): # epoch loop
+				for n in range(num_batch): # batch loop
 					tic = time.time()
-					# [loss_value, update_value, summaries] = sess.run([loss, optim, merged])	
-					[loss_value, update_value] = sess.run([loss, optim])	
+					# [loss_value, update_value, summaries] = sess.run([loss, optim, merged])
+					[loss_value, update_value] = sess.run([loss, optim])
 					duration = time.time()-tic
 
 					total_times += duration
 
 					step = int(ep*num_batch + n)
-					# write log 
-					print('step {}: loss = {:.3}; {:.2} data/sec, excuted {} minutes').format(step,
+					# write log
+					print ('step {}: loss = {:.3}; {:.2} data/sec, excuted {} minutes').format(step,
 						loss_value, 1.0/duration, int(total_times/60))
 					# writer.add_summary(summaries, global_step=step)
 				# save model parameters after 2 epoch training
@@ -167,11 +168,11 @@ class MODEL(Network):
 
 			# close session
 			coord.request_stop()
-			coord.join(threads)			
-			sess.close()	
+			coord.join(threads)
+			sess.close()
 
-	def infer(self, save_dir='out', resize=True, merge=True):
-		print("generating test set of {}.... will save to [./{}]".format(self.eval_file, save_dir))
+	def infer(self, save_dir='out', imresize=True, merge=True):
+		print ("generating test set of {}.... will save to [./{}]".format(self.eval_file, save_dir))
 		room_dir = os.path.join(save_dir, 'room')
 		close_wall_dir = os.path.join(save_dir, 'boundary')
 
@@ -198,21 +199,27 @@ class MODEL(Network):
 
 		# infer one by one
 		paths = open(self.eval_file, 'r').read().splitlines()
-		paths = [p.split('\t')[0] for p in paths]	
+		paths = [p.split('\t')[0] for p in paths]
 		for p in paths:
-			im = imread(p, mode='RGB')  
-			im_x = imresize(im, (512,512,3)) / 255. # resize and normalize
+			#imageTest=Image.open(p)
+			#imageTest.show()
+			im = imread(p, mode='RGB')
+			im=cv2.imread(p,0)
+			#cv2.imshow('image', imageTest)
+			#cv2.waitKey(0)
+			#cv2.destroyAllWindows()
+			im_x = resize(im,(512 ,512,3)) / 255. # resize and normalize
 			#numpy.array(Image.fromarray(arr).resize(im, (512,512,3)) / 255.
 			im_x = np.reshape(im_x, (1,512,512,3))
 
 			[out1, out2] = sess.run([rooms, close_walls], feed_dict={x: im_x})
 			if resize:
-				# out1 = imresize(np.squeeze(out1), (im.shape[0], im.shape[1])) # resize back 
-				# out2 = imresize(np.squeeze(out2), (im.shape[0], im.shape[1])) # resize back 
+				# out1 = imresize(np.squeeze(out1), (im.shape[0], im.shape[1])) # resize back
+				# out2 = imresize(np.squeeze(out2), (im.shape[0], im.shape[1])) # resize back
 				out1_rgb = ind2rgb(np.squeeze(out1))
-				out1_rgb = imresize(out1_rgb, (im.shape[0], im.shape[1])) # resize back 
+				out1_rgb = resize(out1_rgb, (im.shape[0], im.shape[1])) # resize back
 				out2_rgb = ind2rgb(np.squeeze(out2), color_map=floorplan_boundary_map)
-				out2_rgb = imresize(out2_rgb, (im.shape[0], im.shape[1])) # resize back 
+				out2_rgb = resize(out2_rgb, (im.shape[0], im.shape[1])) # resize back
 			else:
 				out1_rgb = ind2rgb(np.squeeze(out1))
 				out2_rgb = ind2rgb(np.squeeze(out2), color_map=floorplan_boundary_map)
@@ -225,18 +232,18 @@ class MODEL(Network):
 				# out3_rgb = ind2rgb(out1, color_map=floorplan_fuse_map_figure) # use for present
 				out3_rgb = ind2rgb(out1, color_map=floorplan_fuse_map) # use for present
 
-			name = p.split('/')[-1]	
-			save_path1 = os.path.join(room_dir, name.split('.jpg')[0]+'_rooms.png')		
-			save_path2 = os.path.join(close_wall_dir, name.split('.jpg')[0]+'_bd_rm.png')		
-			save_path3 = os.path.join(save_dir, name.split('.jpg')[0]+'_rooms.png')		
+			name = p.split('/')[-1]
+			save_path1 = os.path.join(room_dir, name.split('.jpg')[0]+'_rooms.png')
+			save_path2 = os.path.join(close_wall_dir, name.split('.jpg')[0]+'_bd_rm.png')
+			save_path3 = os.path.join(save_dir, name.split('.jpg')[0]+'_rooms.png')
 
 			imsave(save_path1, out1_rgb)
 			imsave(save_path2, out2_rgb)
 			if merge:
 				imsave(save_path3, out3_rgb)
 			# imsave(save_path4, out4)
-			
-			print('Saving prediction: {}'.format(name))
+
+			print ('Saving prediction: {}'.format(name))
 
 	def evaluate(self, sess, epoch, num_of_classes=11):
 		x = tf.placeholder(shape=[1, 512, 512, 3], dtype=tf.float32)
@@ -245,7 +252,7 @@ class MODEL(Network):
 		predict_room = self.convert_one_hot_to_image(logits1, act='softmax', dtype='int')
 
 		paths = open(self.eval_file, 'r').read().splitlines()
-		image_paths = [p.split('\t')[0] for p in paths] # image 
+		image_paths = [p.split('\t')[0] for p in paths] # image
 		gt2_paths = [p.split('\t')[2] for p in paths] # 2 denote doors (and windows)
 		gt3_paths = [p.split('\t')[3] for p in paths] # 3 denote rooms
 		gt4_paths = [p.split('\t')[-1] for p in paths] # last one denote close wall
@@ -253,20 +260,20 @@ class MODEL(Network):
 		n = len(paths)
 
 		hist = np.zeros((num_of_classes, num_of_classes))
-		for i in xrange(n):
+		for i in range(n):
 			im = imread(image_paths[i], mode='RGB')
 			# for fuse label
 			dd = imread(gt2_paths[i], mode='L')
 			rr = imread(gt3_paths[i], mode='RGB')
 			cw = imread(gt4_paths[i], mode='L')
 
-			im = imresize(im, (512, 512, 3)) / 255. # normalize input image
+			im = resize(im, (512, 512, 3)) / 255. # normalize input image
 			im = np.reshape(im, (1,512,512,3))
 			# merge label
-			rr = imresize(rr, (512, 512, 3))
+			rr = resize(rr, (512, 512, 3))
 			rr_ind = rgb2ind(rr)
-			cw = imresize(cw, (512, 512)) / 255
-			dd = imresize(dd, (512, 512)) / 255
+			cw = resize(cw, (512, 512)) / 255
+			dd = resize(dd, (512, 512)) / 255
 			cw = (cw>0.5).astype(np.uint8)
 			dd = (dd>0.5).astype(np.uint8)
 			rr_ind[cw==1] = 10
@@ -283,14 +290,14 @@ class MODEL(Network):
 
 		overall_acc = np.diag(hist).sum() / hist.sum()
 		mean_acc = np.diag(hist) / (hist.sum(1) + 1e-6)
-		# iu = np.diag(hist) / (hist.sum(1) + 1e-6 + hist.sum(0) - np.diag(hist))			
+		# iu = np.diag(hist) / (hist.sum(1) + 1e-6 + hist.sum(0) - np.diag(hist))
 		mean_acc9 = (np.nansum(mean_acc[:7])+mean_acc[-2]+mean_acc[-1]) / 9.
 
 		file = open('EVAL_'+self.log_dir, 'a')
 		print>>file, 'Model at epoch {}: overall accuracy = {:.4}, mean_acc = {:.4}'.format(epoch, overall_acc, mean_acc9)
-		for i in xrange(mean_acc.shape[0]):
-			if i not in [7 ,8]: # ingore class 7 & 8 
-				print>>file, '\t\tepoch {}: {}th label: accuracy = {:.4}'.format(epoch, i, mean_acc[i])		
+		for i in range(mean_acc.shape[0]):
+			if i not in [7 ,8]: # ingore class 7 & 8
+				print>>file, '\t\tepoch {}: {}th label: accuracy = {:.4}'.format(epoch, i, mean_acc[i])
 		file.close()
 
 def main(args):
@@ -307,8 +314,8 @@ def main(args):
 		tic = time.time()
 		model.train(loader_dict, num_batch)
 		toc = time.time()
-		print('total training + evaluation time = {} minutes'.format((toc-tic)/60))
-	elif args.phase.lower() == 'test':	
+		print ('total training + evaluation time = {} minutes'.format((toc-tic)/60))
+	elif args.phase.lower() == 'test':
 		model.infer()
 	else:
 		pass
